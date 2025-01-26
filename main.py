@@ -3,11 +3,13 @@ import psycopg2
 import sys
 import os
 from logic.ui import LoginApp
-from logic.dialogpopup import FuncApp
+from logic.leaderboard import ScoreApp
 import socket
+import math
 from dotenv import load_dotenv
-from multiprocessing import Process
-load_dotenv()
+from kivy.config import Config
+Config.set('kivy', 'log_level', 'info')
+load_dotenv(override=True)
 
 
 # --------------------------------------------------------------------------------
@@ -188,7 +190,10 @@ def run_game(username, conn):
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("10-Level Wall Maze")
-    is_func_dialog = False
+    user_function = None
+    func_cicle = 0
+    collided = True
+    manual_colided = False
     clock = pygame.time.Clock()
 
     # If user has a high_score, that means they've completed that many levels.
@@ -216,20 +221,39 @@ def run_game(username, conn):
             if event.type == 32787: #exit type
                 print("Exit button pressed. Exiting game.")
                 running = False  # Exit the main loop
-
-        # Movement input
-        keys = pygame.key.get_pressed()
+                
         dx, dy = 0, 0
-        if keys[pygame.K_LEFT] or keys[pygame.K_a]:
-            dx = -PLAYER_SPEED
-        if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
-            dx = PLAYER_SPEED
-        if keys[pygame.K_UP] or keys[pygame.K_w]:
-            dy = -PLAYER_SPEED
-        if keys[pygame.K_DOWN] or keys[pygame.K_s]:
-            dy = PLAYER_SPEED
+        #! KEYBOARD INPUT
+        # keys = pygame.key.get_pressed()
+        
+        # if keys[pygame.K_LEFT] or keys[pygame.K_a]:
+        #     dx = -PLAYER_SPEED
+        # if keys[pygame.K_RIGHT] or keys[pygame.K_d]:
+        #     dx = PLAYER_SPEED
+        # if keys[pygame.K_UP] or keys[pygame.K_w]:
+        #     dy = -PLAYER_SPEED
+        # if keys[pygame.K_DOWN] or keys[pygame.K_s]:
+        #     dy = PLAYER_SPEED
+        #! REDRAW FUNC
+        def redraw():
+            screen.fill((0, 0, 0))  # black background
+
+            # Draw walls
+            for wall in walls:
+                pygame.draw.rect(screen, (200, 200, 200), wall)
+
+            # Draw player
+            pygame.draw.rect(screen, (0, 255, 0), player_rect)
+
+            # Display current level
+            font = pygame.font.SysFont(None, 36)
+            text_surface = font.render(f"Level: {current_level}", True, (255, 255, 255))
+            screen.blit(text_surface, (10, 10))
+
+            pygame.display.flip()
 
         # Save old position in case we collide
+        
         old_x, old_y = player_rect.x, player_rect.y
 
         # Move
@@ -241,7 +265,7 @@ def run_game(username, conn):
 
         # Collision detection: if collide with any wall, revert movement
         #! COLISION HANDLING
-        collided = False
+       
         for wall in walls:
             if player_rect.colliderect(wall):
                 player_rect.x = old_x
@@ -251,29 +275,141 @@ def run_game(username, conn):
         if player_rect.x < 0 or player_rect.y < 0 or \
            player_rect.x + PLAYER_SIZE > SCREEN_WIDTH or \
            player_rect.y + PLAYER_SIZE > SCREEN_HEIGHT:
-            player_rect.x = max(0, min(player_rect.x, SCREEN_WIDTH - PLAYER_SIZE))
-            player_rect.y = max(0, min(player_rect.y, SCREEN_HEIGHT - PLAYER_SIZE))
-            collided = True
+           player_rect.x = max(1, min(player_rect.x, SCREEN_WIDTH - PLAYER_SIZE))
+           player_rect.y = max(1, min(player_rect.y, SCREEN_HEIGHT - PLAYER_SIZE))
+           collided = True
   
-            
-        if collided:
-            print("colided")
+        if collided or manual_colided:
+            user_function = None
+            if player_rect.colliderect(wall):
+                BUFFER_DISTANCE = 2  # Distance to keep from the wall
+                if player_rect.right >= wall.left and player_rect.left <= wall.left:
+                    player_rect.right = wall.left - BUFFER_DISTANCE  # Move player to the left of the wall
+                elif player_rect.left <= wall.right and player_rect.right >= wall.right:
+                    player_rect.left = wall.right + BUFFER_DISTANCE  # Move player to the right of the wall
+                if player_rect.bottom >= wall.top and player_rect.top <= wall.top:
+                    player_rect.bottom = wall.top - BUFFER_DISTANCE  # Move player above the wall
+                elif player_rect.top <= wall.bottom and player_rect.bottom >= wall.bottom:
+                    player_rect.top = wall.bottom + BUFFER_DISTANCE  # Move player below the wall
+            if player_rect.x < 0:
+                player_rect.x = 0 + BUFFER_DISTANCE
+            if player_rect.y < 0:
+                player_rect.y = 0 + BUFFER_DISTANCE
+            if player_rect.x + PLAYER_SIZE > SCREEN_WIDTH:
+                player_rect.x = SCREEN_WIDTH - PLAYER_SIZE - BUFFER_DISTANCE
+            if player_rect.y + PLAYER_SIZE > SCREEN_HEIGHT:
+                player_rect.y = SCREEN_HEIGHT - PLAYER_SIZE - BUFFER_DISTANCE
+            redraw()
+            print("Collision detected! Please input a function to execute:")
+            input_active = True
+            user_input = ""
 
-        #! COLISION HANDLING
-        # Keep player within screen bounds (optional, so we don't go off-screen)
-        if player_rect.x < 0:
-            player_rect.x = 0
-        if player_rect.y < 0:
-            player_rect.y = 0
-        if player_rect.x + PLAYER_SIZE > SCREEN_WIDTH:
-            player_rect.x = SCREEN_WIDTH - PLAYER_SIZE
-        if player_rect.y + PLAYER_SIZE > SCREEN_HEIGHT:
-            player_rect.y = SCREEN_HEIGHT - PLAYER_SIZE
+            # Create a sub-window for the input dialog
+            input_window = pygame.Surface((400, 200))
+            input_window_rect = input_window.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            
+        if input_active == True:
+            while input_active:
+                for event in pygame.event.get():
+                    if event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_RETURN:  # Execute on Enter key
+                            try:
+                                if user_input == None or user_input == "":
+                                    raise ValueError("User_input cannot be blank.")
+                                user_function = user_input
+                                print(user_function)
+                                input_active = False
+                                collided = False
+                            except Exception as e:
+                                print(f"Error in function: {e}")
+                        elif event.key == pygame.K_BACKSPACE:  # Handle backspace
+                            user_input = user_input[:-1]
+                        else:
+                            user_input += event.unicode
+
+                    if event.type == pygame.QUIT:  # Allow exiting during input
+                        print("Exit button pressed. Exiting game.")
+                        running = False
+                        input_active = False
+
+                # Draw the input window
+                input_window.fill((50, 50, 50))  # Dark gray background
+                pygame.draw.rect(input_window, (255, 255, 255), input_window_rect, 2)  # White border
+
+                # Display instructions and user input
+                font = pygame.font.SysFont(None, 24)
+                instructions = font.render("Введите функцию и нажмите Enter:", True, (255, 255, 255))
+                input_text = font.render(user_input, True, (255, 255, 0))
+
+                input_window.blit(instructions, (10, 10))
+                input_window.blit(input_text, (10, 50))
+
+                # Blit the input window onto the main screen
+                screen.blit(input_window, input_window_rect.topleft)
+                pygame.display.flip()
+        
+        if user_function:
+            try:
+                if user_function.strip() == "":
+                    input_active = True
+                    raise ValueError("User function cannot be blank.")
+                
+                # Extract the mathematical expression from the user input (e.g., "asc!y=x-5")
+                pack = user_function.split("!")
+                if len(pack) != 2:
+                    input_active = True
+                    raise ValueError("Invalid format. Expected format: <seq_type>!<expression> (e.g., asc!y=x-5).")
+                
+                seq_type = pack[0]
+                math_expression = pack[1].split('=')[1].strip()
+
+                print(seq_type, math_expression)
+                
+                # Prepare the environment for evaluating the math expression
+                safe_globals = {
+                    "math": math,
+                    "cos": math.cos,
+                    "sin": math.sin,
+                    "abs": abs,
+                    "pow": pow
+                }
+                
+                # Validate and compile the math expression into a lambda function
+                try:
+                    math_function = eval(f"lambda x: {math_expression}", safe_globals)
+                except Exception as eval_error:
+                    input_active = True
+                    raise ValueError(f"Invalid mathematical expression: {math_expression}. Error: {eval_error}")
+                
+                # Example usage with a test value of x
+                x_value = 1  # This can be dynamically changed as needed
+                if seq_type.lower() == "asc":
+                    player_rect.x += x_value
+                    player_rect.y -= math_function(x_value)
+                    
+                elif seq_type.lower() == "desc":
+                    player_rect.x -= x_value
+                    player_rect.y += math_function(x_value)
+                else:
+                    input_active = True
+                    raise ValueError(f"Invalid sequence type: {seq_type}. Expected 'asc' or 'desc'.")
+                    
+                
+                print("user_func", player_rect.x, player_rect.y)
+
+            except ValueError as ve:
+                print("Value Error:", ve)
+                input_active = True
+            except Exception as e:
+                print("Unexpected Error:", e)
+                input_active = True
 
         # Check if player reached top-right corner region:
         # Let's define "reached top-right corner" as x > SCREEN_WIDTH - 100 and y < 100
         if player_rect.x > SCREEN_WIDTH - 100 and player_rect.y < 100:
             print(f"Level {current_level} Complete!")
+            collided = False
+            user_function = None
             
             # Update the user's high_score in DB if this is the highest level they've reached
             if current_level > get_user_high_score(conn, username):
@@ -283,47 +419,36 @@ def run_game(username, conn):
             # Reset player position for next level
             player_rect.x = 0
             player_rect.y = SCREEN_HEIGHT - PLAYER_SIZE
+            collided = True
+            input_active = True
 
         # Draw everything
-        screen.fill((0, 0, 0))  # black background
-
-        # Draw walls
-        for wall in walls:
-            pygame.draw.rect(screen, (200, 200, 200), wall)
-
-        # Draw player
-        pygame.draw.rect(screen, (0, 255, 0), player_rect)
-
-        # Display current level
-        font = pygame.font.SysFont(None, 36)
-        text_surface = font.render(f"Level: {current_level}", True, (255, 255, 255))
-        screen.blit(text_surface, (10, 10))
-
-        pygame.display.flip()
-
+        redraw()
     pygame.quit()
 
 def main():
-    # Check for internet connection
+    # Проверка интернет соединения
     if check_internet_connection():
         print("Internet connection detected.")
         conn = create_connection()
         if conn:
             create_tables(conn)
-            #! 
             x = LoginApp(conn=conn)
             x.run()
             if x.username:
                 x.terminate()
                 run_game(x.username, conn)
+                # y = ScoreApp(conn=conn)
+                # y.run()
+                # y.terminate()
             else:
-                print("Could not authenticate or register user. Exiting.")
+                print("Невозможно авторизовать пользователя. Выход.")
             conn.close()
         else:
-            print("Could not connect to the database. Exiting.")
+            print("Невозможно подключится к базе данных. Выход.")
     else:
-        print("No internet connection. You cannot authenticate or register.")
-        print("Game requires database access, so we must exit.")
+        print("Нет интернет соединения. Невозможно авторизоваться или зарегистрировать пользователя.")
+        print("Игра требует подклюбчения к базе данных.")
 
 if __name__ == "__main__":
     main()
