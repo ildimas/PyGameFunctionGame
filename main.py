@@ -20,7 +20,15 @@ POSTGRES_HOST = os.getenv('POSTGRES_HOST')        # e.g., "localhost" or "remote
 POSTGRES_DB = os.getenv('POSTGRES_DB') 
 POSTGRES_USER = os.getenv('POSTGRES_USER') 
 POSTGRES_PASSWORD = os.getenv('POSTGRES_PASSWORD') 
-POSTGRES_PORT = os.getenv('POSTGRES_PORT')                         # Default PostgreSQL port is 5432
+POSTGRES_PORT = os.getenv('POSTGRES_PORT') # Default PostgreSQL port is 5432
+
+
+POSTGRES_PASSWORD="lg5EBC4000KYzsS5D5eJ"  
+POSTGRES_USER="nikita"             
+POSTGRES_DB="main_db"  
+POSTGRES_PORT=6000     
+POSTGRES_HOST="185.139.69.220"
+
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
@@ -191,9 +199,7 @@ def run_game(username, conn):
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("10-Level Wall Maze")
     user_function = None
-    func_cicle = 0
     collided = True
-    manual_colided = False
     clock = pygame.time.Clock()
 
     # If user has a high_score, that means they've completed that many levels.
@@ -207,7 +213,6 @@ def run_game(username, conn):
     # Player starts at bottom-left corner, which we define as:
     # (0, SCREEN_HEIGHT - PLAYER_SIZE)
     player_rect = pygame.Rect(0, SCREEN_HEIGHT - PLAYER_SIZE, PLAYER_SIZE, PLAYER_SIZE)
-
     running = True
     while running:
         clock.tick(FPS)
@@ -260,6 +265,9 @@ def run_game(username, conn):
         player_rect.x += dx
         player_rect.y += dy
 
+        colided_x = 0
+        colided_y = 0
+        
         # Get walls for current level
         walls = get_level_walls(current_level)
 
@@ -279,7 +287,9 @@ def run_game(username, conn):
            player_rect.y = max(1, min(player_rect.y, SCREEN_HEIGHT - PLAYER_SIZE))
            collided = True
   
-        if collided or manual_colided:
+        if collided:
+            colided_x = player_rect.x
+            colided_y = SCREEN_HEIGHT - player_rect.y
             user_function = None
             if player_rect.colliderect(wall):
                 BUFFER_DISTANCE = 2  # Distance to keep from the wall
@@ -385,11 +395,11 @@ def run_game(username, conn):
                 x_value = 1  # This can be dynamically changed as needed
                 if seq_type.lower() == "asc":
                     player_rect.x += x_value
-                    player_rect.y -= math_function(x_value)
+                    player_rect.y = SCREEN_HEIGHT-PLAYER_SIZE-colided_y - math_function(player_rect.x - colided_x)
                     
                 elif seq_type.lower() == "desc":
                     player_rect.x -= x_value
-                    player_rect.y += math_function(x_value)
+                    player_rect.y = SCREEN_HEIGHT-PLAYER_SIZE-colided_y - math_function(player_rect.x - colided_x)
                 else:
                     input_active = True
                     raise ValueError(f"Invalid sequence type: {seq_type}. Expected 'asc' or 'desc'.")
