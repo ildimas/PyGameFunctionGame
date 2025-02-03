@@ -10,7 +10,7 @@ from kivy.graphics import Rectangle
 import os
 import sys
 import gc
-from utils import create_connection, get_all_users_scores# Ensure this function retrieves scores from a database
+from logic.utils import create_connection, get_all_users_scores# Ensure this function retrieves scores from a database
 
 # -----------------------------
 # Function to Get Background Image Path

@@ -9,7 +9,7 @@ import tkinter as tk
 import math
 import time
 from kivy.clock import Clock
-import subprocess
+import multiprocessing
 from pathlib import Path
 from dotenv import load_dotenv
 from kivy.config import Config
@@ -215,30 +215,27 @@ def get_all_users_scores(conn):
 # --------------------------------------------------------------------------------
 def start_kivy():
     """
-    Starts leaderboard.py using the same Python interpreter as the PyInstaller bundle.
+    Runs leaderboard.py using the bundled Python interpreter inside the PyInstaller environment.
     """
-    global kivy_process
+    base_dir = Path(sys.executable).parent  # Get directory of main.exe
+    leaderboard_script = base_dir / "_internal" / "logic" / "leaderboard.py"  # Adjust if necessary
 
-    # Detect the current executable (PyInstaller's embedded Python)
-    python_interpreter = sys.executable  # This should be mainBundled.exe when frozen
-
-    # Path to leaderboard.py (relative to the bundled directory)
-    leaderboard_script = Path(__file__).parent / "logic" / "leaderboard.py"
-
-    print(f"Starting Kivy application using: {python_interpreter}")
-    print(f"Leaderboard script path: {leaderboard_script}")
+    print(f"Starting Kivy application from: {leaderboard_script}")
 
     try:
-        kivy_process = subprocess.Popen(
-            [python_interpreter, str(leaderboard_script)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        print(f"Kivy process started with PID: {kivy_process.pid}")
-
+        # Use multiprocessing to start a new process
+        multiprocessing.Process(target=exec_leaderboard, args=(leaderboard_script,)).start()
     except Exception as e:
         print(f"Failed to start Kivy application: {e}")
+
+def exec_leaderboard(script_path):
+    """
+    Reads and executes leaderboard.py while setting __file__ manually.
+    """
+    global_vars = {"__name__": "__main__", "__file__": script_path, "sys": sys}  # Set __file__
+    
+    with open(script_path, "r", encoding="utf-8") as f:
+        exec(f.read(), global_vars)
 
 def stop_kivy():
     global kivy_process
@@ -292,7 +289,6 @@ def run_game(username, conn):
         clock.tick(FPS)
 
         # Close the game if all levels are done
-        current_level = 11
         if current_level > 10:
             print("Congratulations! You've completed all levels!")
             print("Game Over. Closing Pygame...")
@@ -561,4 +557,5 @@ def main():
 #     leaderboard.terminate()
     
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()
