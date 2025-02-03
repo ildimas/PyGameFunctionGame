@@ -70,3 +70,23 @@ def create_connection():
     except Exception as e:
         print("Failed to connect to database:", e)
         return None
+    
+
+def get_all_users_scores(conn):
+    """
+    Retrieve all users' scores from the database and return as a dictionary
+    with the username as the key and high_score as the value.
+    """
+    query = "SELECT username, high_score FROM users"
+    scores = {}
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            results = cur.fetchall()
+            scores = {row[0]: row[1] for row in results}  # Convert to dictionary
+
+    except Exception as e:
+        print(f"Error fetching scores: {e}")
+
+    return scores  # Returns a dictionary of {username: high_score}

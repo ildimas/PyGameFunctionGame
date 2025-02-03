@@ -4,17 +4,30 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
+from kivy.graphics import Rectangle
 from kivy.uix.button import Button
 from kivy.core.window import Window
 from logic.utils import create_connection, authenticate_user, register_user
 import sys
 import gc
+import os
+
+def get_bg_image_path():
+    base_dir = os.path.dirname(os.path.abspath(__file__)) 
+    project_root = os.path.dirname(base_dir)  
+    return os.path.join(project_root, "assets", "cobelstone.jpg")
 
 # Screen for Login
 class LoginScreen(Screen):
     def __init__(self, app, **kwargs):
         super().__init__(**kwargs)
         self.app = app
+         # Add a background image using canvas.before
+        with self.canvas.before:
+            self.bg_rect = Rectangle(source=get_bg_image_path(), pos=self.pos, size=self.size)
+        # Bind the screen's position and size to the update_bg method.
+        self.bind(pos=self.update_bg, size=self.update_bg)
+        
         layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
 
         layout.add_widget(Label(text='Имя пользователя'))
@@ -34,6 +47,11 @@ class LoginScreen(Screen):
         layout.add_widget(register_button)
 
         self.add_widget(layout)
+        
+    def update_bg(self, *args):
+        # Update the background rectangle's position and size.
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
 
     def show_error_popup(self, message):
         content = BoxLayout(orientation='vertical', padding=10, spacing=10)
@@ -48,7 +66,7 @@ class LoginScreen(Screen):
             self.app.username = res
             self.app.stop()  
         else:
-            self.show_error_popup("Ошбика: Необходимо ввести имя пользователя и пароль!")
+            self.show_error_popup("Ошбика: Необходимо ввести имя пользователя и пароль k!")
             
     def go_to_register(self, instance):
         self.manager.current = 'register'
@@ -58,6 +76,11 @@ class RegisterScreen(Screen):
     def __init__(self, app, **kwargs):
         super().__init__(**kwargs)
         self.app = app
+        
+        with self.canvas.before:
+            self.bg_rect = Rectangle(source=get_bg_image_path(), pos=self.pos, size=self.size)
+        self.bind(pos=self.update_bg, size=self.update_bg)
+        
         layout = BoxLayout(orientation='vertical', padding=20, spacing=10)
 
         layout.add_widget(Label(text='Придумайте имя пользователя'))
@@ -77,6 +100,10 @@ class RegisterScreen(Screen):
         layout.add_widget(back_button)
 
         self.add_widget(layout)
+    
+    def update_bg(self, *args):
+        self.bg_rect.pos = self.pos
+        self.bg_rect.size = self.size
         
     def show_error_popup(self, message):
         content = BoxLayout(orientation='vertical', padding=10, spacing=10)
@@ -96,7 +123,7 @@ class RegisterScreen(Screen):
             self.app.username = res
             self.app.stop()  
         else:
-            self.show_error_popup("Ошбика: Необходимо ввести имя пользователя и пароль!")
+            self.show_error_popup("Ошбика: Необходимо ввести имя пользователя и пароль либо пользователь уже существует!")
             
     def go_to_login(self, instance):
         self.manager.current = 'login'

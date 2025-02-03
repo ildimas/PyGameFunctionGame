@@ -3,9 +3,14 @@ import psycopg2
 import sys
 import os
 from logic.ui import LoginApp
-from logic.leaderboard import ScoreApp
+# from logic.leaderboard import ScoreApp
 import socket
+import tkinter as tk
 import math
+import time
+from kivy.clock import Clock
+import subprocess
+from pathlib import Path
 from dotenv import load_dotenv
 from kivy.config import Config
 Config.set('kivy', 'log_level', 'info')
@@ -69,11 +74,10 @@ def get_level_walls(level_num):
         ]
     elif level_num == 5:
         return [
-            pygame.Rect(50, 50, 700, 40),
-            pygame.Rect(50, 510, 700, 40),
-            pygame.Rect(50, 50, 40, 500),
-            pygame.Rect(710, 50, 40, 500),
-            pygame.Rect(300, 200, 200, 50),
+        pygame.Rect(50, 50, 500, 40),
+        pygame.Rect(50, 410, 500, 40),
+        pygame.Rect(50, 50, 40, 400),
+        pygame.Rect(510, 50, 40, 400)  # New rectangle added
         ]
     elif level_num == 6:
         return [
@@ -185,9 +189,66 @@ def update_user_high_score(conn, username, new_score):
             cur.execute(query, (new_score, username))
         conn.commit()
 
+def get_all_users_scores(conn):
+    """
+    Retrieve all users' scores from the database and return as a dictionary
+    with the username as the key and high_score as the value.
+    """
+    query = "SELECT username, high_score FROM users"
+    scores = {}
+
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            results = cur.fetchall()
+            if results:
+                scores = {row[0]: row[1] for row in results}  # Convert to dictionary
+            else:
+                print("No scores found in the database.")
+    except Exception as e:
+        print(f"Error fetching scores: {e}")
+
+    return scores  # Returns a dictionary of {username: high_score}
+
 # --------------------------------------------------------------------------------
 # Game Logic
 # --------------------------------------------------------------------------------
+def start_kivy():
+    """
+    Starts leaderboard.py using the same Python interpreter as the PyInstaller bundle.
+    """
+    global kivy_process
+
+    # Detect the current executable (PyInstaller's embedded Python)
+    python_interpreter = sys.executable  # This should be mainBundled.exe when frozen
+
+    # Path to leaderboard.py (relative to the bundled directory)
+    leaderboard_script = Path(__file__).parent / "logic" / "leaderboard.py"
+
+    print(f"Starting Kivy application using: {python_interpreter}")
+    print(f"Leaderboard script path: {leaderboard_script}")
+
+    try:
+        kivy_process = subprocess.Popen(
+            [python_interpreter, str(leaderboard_script)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        print(f"Kivy process started with PID: {kivy_process.pid}")
+
+    except Exception as e:
+        print(f"Failed to start Kivy application: {e}")
+
+def stop_kivy():
+    global kivy_process
+    if kivy_process and kivy_process.poll() is None:  # Check if it's still running
+        print("Stopping Kivy application...")
+        kivy_process.terminate()  # Graceful termination
+        time.sleep(1)  # Allow time to close properly
+        kivy_process.kill()  # Force kill if still running
+        kivy_process = None
+
 
 def run_game(username, conn):
     """
@@ -200,7 +261,20 @@ def run_game(username, conn):
     pygame.display.set_caption("10-Level Wall Maze")
     user_function = None
     collided = True
+    input_active = True
     clock = pygame.time.Clock()
+    
+    
+    assets_dir = os.path.join(os.path.dirname(__file__), "assets")
+
+    # Load textures
+    background_texture = pygame.image.load(os.path.join(assets_dir, "background.jpg")).convert()
+    player_texture = pygame.image.load(os.path.join(assets_dir, "player.png")).convert_alpha()
+    wall_texture = pygame.image.load(os.path.join(assets_dir, "wall.png")).convert_alpha()
+    exit_texture = pygame.image.load(os.path.join(assets_dir, "exit.jpg")).convert_alpha()
+    
+    # Optionally scale player texture if PLAYER_SIZE is fixed:
+    player_texture = pygame.transform.scale(player_texture, (PLAYER_SIZE, PLAYER_SIZE))
 
     # If user has a high_score, that means they've completed that many levels.
     # Start them on the next level, but do not exceed 10.
@@ -218,9 +292,22 @@ def run_game(username, conn):
         clock.tick(FPS)
 
         # Close the game if all levels are done
+        current_level = 11
         if current_level > 10:
             print("Congratulations! You've completed all levels!")
-            break
+            print("Game Over. Closing Pygame...")
+
+            pygame.quit()  # Quit Pygame properly
+
+            # Start the Kivy app
+            start_kivy()
+
+            # Simulating some delay before stopping (for testing)
+            time.sleep(30)  # Let Kivy run for 5 seconds before stopping
+            stop_kivy()
+
+            print("Kivy stopped. Exiting program...")
+            sys.exit()
 
         for event in pygame.event.get():
             if event.type == 32787: #exit type
@@ -239,16 +326,23 @@ def run_game(username, conn):
         #     dy = -PLAYER_SPEED
         # if keys[pygame.K_DOWN] or keys[pygame.K_s]:
         #     dy = PLAYER_SPEED
+        
         #! REDRAW FUNC
         def redraw():
-            screen.fill((0, 0, 0))  # black background
+            screen.blit(background_texture, (0, 0))  # black background
 
             # Draw walls
             for wall in walls:
-                pygame.draw.rect(screen, (200, 200, 200), wall)
+                wall_tex_scaled = pygame.transform.scale(wall_texture, (wall.width, wall.height))
+                screen.blit(wall_tex_scaled, (wall.x, wall.y))
 
             # Draw player
-            pygame.draw.rect(screen, (0, 255, 0), player_rect)
+            screen.blit(player_texture, (player_rect.x, player_rect.y))
+            
+            # Draw exit area
+            exit_area_rect = pygame.Rect(SCREEN_WIDTH - 100, 0, 100, 100)
+            exit_tex_scaled = pygame.transform.scale(exit_texture, (exit_area_rect.width, exit_area_rect.height))
+            screen.blit(exit_tex_scaled, (exit_area_rect.x, exit_area_rect.y))
 
             # Display current level
             font = pygame.font.SysFont(None, 36)
@@ -264,9 +358,6 @@ def run_game(username, conn):
         # Move
         player_rect.x += dx
         player_rect.y += dy
-
-        colided_x = 0
-        colided_y = 0
         
         # Get walls for current level
         walls = get_level_walls(current_level)
@@ -288,8 +379,6 @@ def run_game(username, conn):
            collided = True
   
         if collided:
-            colided_x = player_rect.x
-            colided_y = SCREEN_HEIGHT - player_rect.y
             user_function = None
             if player_rect.colliderect(wall):
                 BUFFER_DISTANCE = 2  # Distance to keep from the wall
@@ -312,51 +401,58 @@ def run_game(username, conn):
             redraw()
             print("Collision detected! Please input a function to execute:")
             input_active = True
-            user_input = ""
+                    
+        
 
-            # Create a sub-window for the input dialog
-            input_window = pygame.Surface((400, 200))
-            input_window_rect = input_window.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
             
-        if input_active == True:
-            while input_active:
-                for event in pygame.event.get():
-                    if event.type == pygame.KEYDOWN:
-                        if event.key == pygame.K_RETURN:  # Execute on Enter key
-                            try:
-                                if user_input == None or user_input == "":
-                                    raise ValueError("User_input cannot be blank.")
-                                user_function = user_input
-                                print(user_function)
-                                input_active = False
-                                collided = False
-                            except Exception as e:
-                                print(f"Error in function: {e}")
-                        elif event.key == pygame.K_BACKSPACE:  # Handle backspace
-                            user_input = user_input[:-1]
-                        else:
-                            user_input += event.unicode
+        if input_active:
+            def get_user_input():
+                root = tk.Tk()
+                root.title("Input Window")
 
-                    if event.type == pygame.QUIT:  # Allow exiting during input
-                        print("Exit button pressed. Exiting game.")
-                        running = False
-                        input_active = False
+                # Get screen width and height
+                screen_width = root.winfo_screenwidth()
+                screen_height = root.winfo_screenheight()
 
-                # Draw the input window
-                input_window.fill((50, 50, 50))  # Dark gray background
-                pygame.draw.rect(input_window, (255, 255, 255), input_window_rect, 2)  # White border
+                # Window dimensions
+                window_width = 300
+                window_height = 100
 
-                # Display instructions and user input
-                font = pygame.font.SysFont(None, 24)
-                instructions = font.render("Введите функцию и нажмите Enter:", True, (255, 255, 255))
-                input_text = font.render(user_input, True, (255, 255, 0))
+                # Calculate position to center the window
+                x_position = (screen_width // 2) - (window_width // 2)
+                y_position = (screen_height // 2) - (window_height // 2)
 
-                input_window.blit(instructions, (10, 10))
-                input_window.blit(input_text, (10, 50))
+                # Set window geometry (Width x Height + X_Position + Y_Position)
+                root.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
 
-                # Blit the input window onto the main screen
-                screen.blit(input_window, input_window_rect.topleft)
-                pygame.display.flip()
+                user_input_var = tk.StringVar()  # StringVar to store input
+
+                def submit_data():
+                    if not user_input_var.get().strip():
+                        print("Error: User input cannot be blank.")
+                        return  # Do not close the window; let the user retry
+
+                    root.quit()  # Quit event loop
+
+                # Entry widget
+                entry = tk.Entry(root, textvariable=user_input_var, width=40)
+                entry.pack(padx=10, pady=10)
+
+                # Submit button
+                submit_button = tk.Button(root, text="Submit", command=submit_data)
+                entry.bind("<Return>", lambda event: submit_data())
+                submit_button.pack(padx=10, pady=10)
+
+                root.mainloop()  # Start Tkinter event loop
+                root.destroy()  # Ensure cleanup
+
+                return user_input_var.get()  # Return user input after window closes
+            
+            user_function = get_user_input()
+            input_active = False
+            collided = False
+            print("User input received:", user_function)
+
         
         if user_function:
             try:
@@ -384,22 +480,22 @@ def run_game(username, conn):
                     "pow": pow
                 }
                 
-                # Validate and compile the math expression into a lambda function
                 try:
                     math_function = eval(f"lambda x: {math_expression}", safe_globals)
                 except Exception as eval_error:
                     input_active = True
                     raise ValueError(f"Invalid mathematical expression: {math_expression}. Error: {eval_error}")
                 
-                # Example usage with a test value of x
-                x_value = 1  # This can be dynamically changed as needed
+                x_value = 10  
                 if seq_type.lower() == "asc":
                     player_rect.x += x_value
-                    player_rect.y = SCREEN_HEIGHT-PLAYER_SIZE-colided_y - math_function(player_rect.x - colided_x)
+                    player_rect.y -= math_function(x_value)
+
                     
                 elif seq_type.lower() == "desc":
                     player_rect.x -= x_value
-                    player_rect.y = SCREEN_HEIGHT-PLAYER_SIZE-colided_y - math_function(player_rect.x - colided_x)
+                    player_rect.y -= math_function(x_value)
+
                 else:
                     input_active = True
                     raise ValueError(f"Invalid sequence type: {seq_type}. Expected 'asc' or 'desc'.")
@@ -424,7 +520,6 @@ def run_game(username, conn):
             # Update the user's high_score in DB if this is the highest level they've reached
             if current_level > get_user_high_score(conn, username):
                 update_user_high_score(conn, username, current_level)
-
             current_level += 1
             # Reset player position for next level
             player_rect.x = 0
@@ -448,9 +543,6 @@ def main():
             if x.username:
                 x.terminate()
                 run_game(x.username, conn)
-                # y = ScoreApp(conn=conn)
-                # y.run()
-                # y.terminate()
             else:
                 print("Невозможно авторизовать пользователя. Выход.")
             conn.close()
@@ -459,6 +551,14 @@ def main():
     else:
         print("Нет интернет соединения. Невозможно авторизоваться или зарегистрировать пользователя.")
         print("Игра требует подклюбчения к базе данных.")
+    
 
+# def show_leaderboard(conn):
+#     """Run ScoreApp to display leaderboard safely after game ends."""
+#     print("Displaying leaderboard...")
+#     leaderboard = ScoreApp(conn, get_all_users_scores(conn))
+#     leaderboard.run()
+#     leaderboard.terminate()
+    
 if __name__ == "__main__":
     main()
